@@ -15,7 +15,7 @@
 
 #define REG_CTRCARD_SECCNT      (*reinterpret_cast<volatile uint32_t *>(0x10004008))
 #define REG_MCNT                (*reinterpret_cast<volatile uint16_t *>(0x10164000))
-#define REG_MDATA               (*reinterpret_cast<volatile uint16_t *>(0x10164002))
+#define REG_MDATA               (*reinterpret_cast<volatile uint8_t *>(0x10164002))
 #define REG_ROMCNT              (*reinterpret_cast<volatile uint32_t *>(0x10164004))
 #define REG_CMDP                (reinterpret_cast<volatile uint8_t *>(0x10164008))
 #define REG_CMD                 (*reinterpret_cast<volatile uint64_t *>(0x10164008))
@@ -129,12 +129,21 @@ bool sendCommand(const uint8_t *cmdbuf, uint16_t response_len, uint8_t *const re
     uint32_t ctr = 0;
     do {
         if (REG_ROMCNT & ROMCNT_DATA_READY) {
-            uint32_t data = REG_FIFO;
-            if (resp && ctr < response_len) {
-                *(cur++) = data;
-                ctr += 4;
+            if (flags.bit(30)) {
+                if (resp && ctr < response_len) {
+                    REG_FIFO = *(cur++);
+                    ctr += 4;
+                } else {
+                    REG_FIFO = 0;
+                }
             } else {
-                (void)data;
+                uint32_t data = REG_FIFO;
+                if (resp && ctr < response_len) {
+                    *(cur++) = data;
+                    ctr += 4;
+                } else {
+                    (void)data;
+                }
             }
         }
 	} while (REG_ROMCNT & ROMCNT_BUSY);
@@ -176,6 +185,23 @@ void initKey2Seed(uint64_t x, uint64_t y) {
     REG_SEEDY_H = yh;
     platform::logMessage(LOG_DEBUG, "Seeding KEY2: x = %02X %08X y = %02X %08X", xh, xl, yh, yl);
     REG_ROMCNT = ROMCNT_NRESET | ROMCNT_SEC_SEED | ROMCNT_SEC_EN | ROMCNT_SEC_DAT;
+}
+
+void startSPITransfer() {
+    REG_MCNT = 0xA040;
+}
+void waitSPIBusy() {
+    while (REG_MCNT & 0x80);
+}
+void writeSPI(uint8_t op) {
+    REG_MDATA = op;
+    platform::waitSPIBusy();
+}
+uint8_t readSPI() {
+    return REG_MDATA;
+}
+void endSPITransfer() {
+    REG_MCNT = 0x40;
 }
 }
 }
